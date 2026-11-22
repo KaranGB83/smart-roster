@@ -8,8 +8,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import Roster, RosterEntry
-from .schemas import EntryRead, EntryUpsert, RosterCreate, RosterRead, RosterUpdate
+from .models import Conflict, Roster, RosterEntry
+from .schemas import (ConflictRead, EntryRead, EntryUpsert, RosterCreate, RosterRead,
+                      RosterUpdate)
 
 router = APIRouter(prefix="/rosters", tags=["rosters"])
 
@@ -98,3 +99,28 @@ def upsert_entries(roster_id: UUID, body: list[EntryUpsert], db: Session = Depen
     result = db.execute(stmt).scalars().all()
     db.commit()
     return result
+
+
+conflicts_router = APIRouter(prefix="/conflicts", tags=["conflicts"])
+
+
+@conflicts_router.get("", response_model=list[ConflictRead])
+def list_conflicts(roster_id: UUID | None = None, resolved: bool | None = None,
+                   db: Session = Depends(get_db)):
+    stmt = select(Conflict).order_by(Conflict.on_date, Conflict.created_at)
+    if roster_id:
+        stmt = stmt.where(Conflict.roster_id == roster_id)
+    if resolved is not None:
+        stmt = stmt.where(Conflict.resolved == resolved)
+    return db.scalars(stmt).all()
+
+
+@conflicts_router.patch("/{conflict_id}", response_model=ConflictRead)
+def set_resolved(conflict_id: UUID, resolved: bool, db: Session = Depends(get_db)):
+    c = db.get(Conflict, conflict_id)
+    if c is None:
+        raise HTTPException(404, "conflict not found")
+    c.resolved = resolved
+    db.commit()
+    db.refresh(c)
+    return c

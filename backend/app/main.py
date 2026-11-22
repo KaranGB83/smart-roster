@@ -10,7 +10,9 @@ from . import schemas as s
 from .config import get_settings
 from .crud import make_crud_router
 from .db import get_db
+from .rosters import conflicts_router
 from .rosters import router as rosters_router
+from .scheduling.api import router as generate_router
 
 app = FastAPI(title="Smart Roster Management API", version="0.2.0")
 
@@ -63,6 +65,8 @@ for cfg in CRUD:
     app.include_router(make_crud_router(**cfg))
 
 app.include_router(rosters_router)
+app.include_router(conflicts_router)
+app.include_router(generate_router)
 
 
 @app.get("/assignment-details", tags=["assignments"])

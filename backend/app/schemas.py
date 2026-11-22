@@ -204,3 +204,16 @@ class EntryRead(ReadBase):
     shift_id: UUID | None
     is_manual: bool
     is_locked: bool
+
+
+class ConflictRead(ReadBase):
+    roster_id: UUID
+    severity: Literal["error", "warning", "info"]
+    code: str
+    on_date: date | None
+    brand_process_id: UUID | None
+    employee_id: UUID | None
+    message: str
+    suggestions: list
+    resolved: bool
+    created_at: datetime
