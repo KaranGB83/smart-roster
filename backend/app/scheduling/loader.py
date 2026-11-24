@@ -2,13 +2,14 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from .. import models as m
 from .calendar import month_days
-from .domain import (AssignmentIn, BrandProcessIn, CoverageRuleIn, EmployeeIn, LeaveIn, Problem,
-                     Result)
+from .domain import (COVERAGE_CODES, AssignmentIn, BrandProcessIn, CoverageRuleIn, EmployeeIn, Issue,
+                     LeaveIn, Problem, Result)
 
 
 def load_problem(db: Session, month_start: date, base_roster_id: UUID | None = None) -> Problem:
@@ -17,7 +18,7 @@ def load_problem(db: Session, month_start: date, base_roster_id: UUID | None = N
 
     employees = [
         EmployeeIn(str(e.id), e.full_name, e.weekly_offs_per_week, e.max_consecutive_days,
-                   frozenset(e.preferred_off_days or []))
+                   frozenset(e.preferred_off_days or []), str(e.pod_id) if e.pod_id else None)
         for e in db.scalars(select(m.Employee).where(m.Employee.is_active))
     ]
 
@@ -72,12 +73,45 @@ def save_result(db: Session, problem: Problem, result: Result, *, name: str,
                       is_manual=(eid, d) in problem.locked, is_locked=(eid, d) in problem.locked)
         for (eid, d), status in result.entries.items()
     ])
-    db.add_all([
-        m.Conflict(roster_id=roster.id, severity="error", code=g.code, on_date=g.on_date,
-                   brand_process_id=UUID(g.bp_id), message=g.message,
-                   suggestions=[{"cause": g.cause, "staff": g.staff}])
-        for g in result.gaps
-    ])
     db.commit()
     db.refresh(roster)
     return roster
+
+
+def load_roster_context(db: Session, roster: m.Roster) -> tuple[Problem, dict]:
+    """Problem for the roster's month (its locked cells pinned) + its current cells."""
+    problem = load_problem(db, roster.month_start, base_roster_id=roster.id)
+    entries = {(str(en.employee_id), en.on_date): en.status for en in db.scalars(
+        select(m.RosterEntry).where(m.RosterEntry.roster_id == roster.id))}
+    return problem, entries
+
+
+def _ckey(code, bp, emp, on_date):
+    return ("COVERAGE" if code in COVERAGE_CODES else code, str(bp) if bp else None,
+            str(emp) if emp else None, on_date)
+
+
+def sync_conflicts(db: Session, roster_id: UUID, issues: list[Issue]) -> None:
+    """Replace stored conflicts with the latest error/warning issues, keeping 'resolved' flags."""
+    old = db.scalars(select(m.Conflict).where(m.Conflict.roster_id == roster_id)).all()
+    resolved = {_ckey(c.code, c.brand_process_id, c.employee_id, c.on_date) for c in old if c.resolved}
+    db.execute(delete(m.Conflict).where(m.Conflict.roster_id == roster_id))
+    db.add_all([
+        m.Conflict(roster_id=roster_id, severity=i.severity, code=i.code, on_date=i.on_date,
+                   brand_process_id=UUID(i.bp_id) if i.bp_id else None,
+                   employee_id=UUID(i.employee_id) if i.employee_id else None,
+                   message=i.message, suggestions=[i.details] if i.details else [],
+                   resolved=i.key in resolved)
+        for i in issues if i.severity != "info"
+    ])
+    db.commit()
+
+
+def upsert_cells(db: Session, roster_id: UUID, rows: list[dict]) -> None:
+    if not rows:
+        return
+    stmt = insert(m.RosterEntry).values([{**r, "roster_id": roster_id} for r in rows])
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["roster_id", "employee_id", "on_date"],
+        set_={c: stmt.excluded[c] for c in ("status", "shift_id", "is_manual", "is_locked")})
+    db.execute(stmt)
