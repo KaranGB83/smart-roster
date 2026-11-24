@@ -19,9 +19,10 @@ from datetime import date
 
 from ortools.sat.python import cp_model
 
-from .calendar import (CLOSED_HOLIDAY, OPEN, assignment_active, month_days, open_state,
-                       required_staff)
-from .domain import Gap, Problem, Result
+from .calendar import OPEN, assignment_active, month_days, open_state, required_staff
+from .domain import Problem, Result
+from .index import Index
+from .validator import coverage_gaps
 
 W_GAP, W_PREF, W_FAIR = 1000, 3, 2
 OFF_TYPES = {"weekly_off", "holiday_off", "leave", "comp_off"}
@@ -31,33 +32,16 @@ def solve(problem: Problem, time_limit: float = 20.0, workers: int = 1, seed: in
     t0 = time.time()
     days = month_days(problem.month_start)
     holidays = problem.holidays
-    emps = {e.id: e for e in problem.employees}
     bps = {b.id: b for b in problem.brand_processes}
     warnings: list[str] = []
 
-    asg_by_emp = defaultdict(list)
-    asg_by_bp = defaultdict(list)
-    for a in problem.assignments:
-        if a.employee_id in emps and a.bp_id in bps:
-            asg_by_emp[a.employee_id].append(a)
-            asg_by_bp[a.bp_id].append(a)
-    rules = defaultdict(list)
-    for r in problem.coverage_rules:
-        rules[r.bp_id].append(r)
-
-    leave_status: dict[tuple[str, date], str] = {}
-    for lv in problem.leaves:
-        if lv.employee_id not in emps:
-            continue
-        for d in days:
-            if lv.start <= d <= lv.end:
-                leave_status[(lv.employee_id, d)] = "comp_off" if lv.kind == "comp_off" else "leave"
+    idx = Index(problem)
+    asg_by_bp, rules, leave_status = idx.asg_by_bp, idx.rules, idx.leave
 
     # ---- 1. decide which cells are fixed, which are free decisions
     fixed: dict[tuple[str, date], str] = {}
     for e in problem.employees:
-        has_any = any(assignment_active(a, d) for a in asg_by_emp[e.id] for d in days)
-        if not has_any:
+        if not idx.has_any[e.id]:
             warnings.append(f"{e.name} has no active assignment; rostered by weekly-off rules only.")
         for d in days:
             key = (e.id, d)
@@ -65,11 +49,8 @@ def solve(problem: Problem, time_limit: float = 20.0, workers: int = 1, seed: in
                 fixed[key] = leave_status[key]
             elif key in problem.locked:
                 fixed[key] = problem.locked[key]
-            elif has_any:
-                states = [open_state(bps[a.bp_id], d, holidays)
-                          for a in asg_by_emp[e.id] if assignment_active(a, d)]
-                if OPEN not in states:
-                    fixed[key] = "holiday_off" if CLOSED_HOLIDAY in states else "weekly_off"
+            elif idx.forced_off(e.id, d):
+                fixed[key] = idx.forced_off(e.id, d)
 
     model = cp_model.CpModel()
     var = {(e.id, d): model.NewBoolVar(f"w_{e.id}_{d}")
@@ -162,32 +143,5 @@ def solve(problem: Problem, time_limit: float = 20.0, workers: int = 1, seed: in
             res.entries[k] = fixed[k] if k in fixed else (
                 "working" if solver.Value(var[k]) else "weekly_off")
 
-    res.gaps = _find_gaps(problem, slots, res.entries, fixed, emps, bps)
+    res.gaps, res.coverage_slots = coverage_gaps(problem, res.entries, idx)
     return res
-
-
-def _find_gaps(problem, slots, entries, fixed, emps, bps) -> list[Gap]:
-    """Re-derive coverage from the final entries (independent of solver internals)."""
-    gaps = []
-    for (bp_id, d), (req, members) in sorted(slots.items(), key=lambda kv: (kv[0][1], kv[0][0])):
-        covered = sum(1 for m in members if entries[(m, d)] == "working")
-        if covered >= req:
-            continue
-        capacity = sum(1 for m in members if fixed.get((m, d), "working") == "working")
-        cause = "unavailable_staff" if capacity < req else "weekly_off_limits"
-        staff = {emps[m].name: entries[(m, d)] for m in members}
-        label = bps[bp_id].label
-        if not members:
-            hint = "No employee is assigned to this process."
-        elif cause == "unavailable_staff":
-            hint = ("Not enough people are available (leave / comp-off / closed days): "
-                    "add a backup assignment, move someone's leave, or reduce the minimum.")
-        else:
-            hint = ("Enough people are available, but weekly-off and consecutive-day limits "
-                    "leave this day short: add another resource or relax a weekly off.")
-        gaps.append(Gap(
-            bp_id=bp_id, label=label, on_date=d, required=req, covered=covered,
-            code="NO_COVERAGE" if covered == 0 else "UNDER_MIN_STAFF", cause=cause,
-            message=f"{label} on {d:%a %d %b}: needs {req}, has {covered}. {hint}",
-            staff=staff))
-    return gaps
