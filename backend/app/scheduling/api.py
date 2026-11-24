@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..schemas import RosterRead
-from .loader import load_problem, save_result
+from .loader import load_problem, save_result, sync_conflicts
+from .validator import summarize, validate
 from .solver import solve
 
 router = APIRouter(prefix="/rosters", tags=["roster generation"])
@@ -45,6 +46,8 @@ class GenerateResponse(BaseModel):
     solve_seconds: float
     coverage_slots: int
     gap_count: int
+    warning_count: int = 0
+    publishable: bool = False
     gaps: list[GapOut]
     warnings: list[str]
 
@@ -57,12 +60,16 @@ def generate_roster(body: GenerateRequest, db: Session = Depends(get_db)):
     if not problem.employees:
         raise HTTPException(422, "no active employees to roster")
     result = solve(problem, time_limit=body.time_limit_seconds)
-    roster = None
+    roster, summary = None, {"warnings": 0, "publishable": False}
     if result.status in ("optimal", "feasible"):
         roster = save_result(db, problem, result, name=body.name, parent_id=body.base_roster_id,
                              params={"time_limit_seconds": body.time_limit_seconds,
                                      "solver_status": result.status})
+        issues = validate(problem, result.entries)       # errors + warnings, stored for the manager
+        sync_conflicts(db, roster.id, issues)
+        summary = summarize(issues)
     return GenerateResponse(
         roster=roster, solver_status=result.status, solve_seconds=result.wall_time,
         coverage_slots=result.coverage_slots, gap_count=len(result.gaps),
+        warning_count=summary["warnings"], publishable=summary["publishable"],
         gaps=[GapOut(**g.__dict__) for g in result.gaps], warnings=result.warnings)

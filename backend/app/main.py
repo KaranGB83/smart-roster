@@ -13,8 +13,9 @@ from .db import get_db
 from .rosters import conflicts_router
 from .rosters import router as rosters_router
 from .scheduling.api import router as generate_router
+from .scheduling.ops import router as ops_router
 
-app = FastAPI(title="Smart Roster Management API", version="0.2.0")
+app = FastAPI(title="Smart Roster Management API", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,6 +68,7 @@ for cfg in CRUD:
 app.include_router(rosters_router)
 app.include_router(conflicts_router)
 app.include_router(generate_router)
+app.include_router(ops_router)
 
 
 @app.get("/assignment-details", tags=["assignments"])

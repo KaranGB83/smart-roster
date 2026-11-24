@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models import Conflict, Roster, RosterEntry
+from .scheduling.loader import load_roster_context
+from .scheduling.validator import validate
 from .schemas import (ConflictRead, EntryRead, EntryUpsert, RosterCreate, RosterRead,
                       RosterUpdate)
 
@@ -48,8 +50,13 @@ def get_roster(roster_id: UUID, db: Session = Depends(get_db)):
 def update_roster(roster_id: UUID, body: RosterUpdate, db: Session = Depends(get_db)):
     roster = _roster_or_404(db, roster_id)
     data = body.model_dump(exclude_unset=True)
-    if data.get("status") == "published":
-        # Stage 4 adds the validator gate here: roster with error-level conflicts cannot publish.
+    if data.get("status") == "published" and roster.status != "published":
+        problem, entries = load_roster_context(db, roster)
+        errors = [i for i in validate(problem, entries) if i.severity == "error"]
+        if errors:  # mandatory rules broken: the manager must resolve them first
+            raise HTTPException(409, detail={
+                "message": f"Cannot publish: {len(errors)} unresolved error(s).",
+                "errors": [{"code": i.code, "message": i.message} for i in errors[:25]]})
         roster.published_at = datetime.now(timezone.utc)
     for k, v in data.items():
         setattr(roster, k, v)
