@@ -95,6 +95,7 @@ def test_roster_and_manual_entries(client):
     entries = client.get(f"/rosters/{roster['id']}/entries").json()
     assert len(entries) == 2 and entries[0]["status"] == "leave"
     assert len(client.get(f"/rosters/{roster['id']}/entries", params={"date_from": "2026-12-02"}).json()) == 1
-    pub = client.patch(f"/rosters/{roster['id']}", json={"status": "published"}).json()
-    assert pub["status"] == "published" and pub["published_at"]
+    # an incomplete roster (2 cells for 2 employees) must not be publishable
+    blocked = client.patch(f"/rosters/{roster['id']}", json={"status": "published"})
+    assert blocked.status_code == 409 and blocked.json()["detail"]["errors"]
     assert client.delete(f"/rosters/{roster['id']}").status_code == 204

@@ -73,7 +73,8 @@ def test_pending_leave_is_ignored_until_approved_then_gap_is_flagged(seeded):
     assert g["staff"] == {"Kabir Singh": "leave"}
     # persisted as a conflict on the roster for the manager to work through
     stored = seeded.get("/conflicts", params={"roster_id": out["roster"]["id"]}).json()
-    assert len(stored) == 1 and stored[0]["code"] == "NO_COVERAGE" and not stored[0]["resolved"]
+    errors = [c for c in stored if c["severity"] == "error"]
+    assert len(errors) == 1 and errors[0]["code"] == "NO_COVERAGE" and not errors[0]["resolved"]
 
 
 def test_regeneration_keeps_locked_cells(seeded):
