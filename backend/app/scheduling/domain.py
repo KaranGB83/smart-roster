@@ -10,6 +10,7 @@ class EmployeeIn:
     weekly_offs: int = 1
     max_consecutive: int = 6
     preferred_off: frozenset[int] = frozenset()  # ISO weekdays 1..7 (soft)
+    pod: str | None = None                       # used to rank suggestions: same pod first
 
 
 @dataclass(frozen=True)
@@ -82,3 +83,36 @@ class Result:
     objective: float | None = None
     wall_time: float = 0.0
     coverage_slots: int = 0
+
+
+COVERAGE_CODES = ("NO_COVERAGE", "UNDER_MIN_STAFF")
+
+
+@dataclass
+class Issue:
+    """One validation finding. severity: error (blocks publishing) | warning | info."""
+    code: str
+    severity: str
+    message: str
+    on_date: date | None = None
+    bp_id: str | None = None
+    employee_id: str | None = None
+    label: str | None = None
+    details: dict = field(default_factory=dict)
+
+    @property
+    def key(self) -> tuple:
+        code = "COVERAGE" if self.code in COVERAGE_CODES else self.code
+        return (code, self.bp_id, self.employee_id, self.on_date)
+
+
+@dataclass
+class Suggestion:
+    kind: str            # swap_weekly_off | borrow_and_swap | double_duty | escalate
+    title: str
+    detail: str
+    edits: dict | None   # payload for POST /rosters/{id}/edits ; None for manager-only decisions
+    errors_before: int = 0
+    errors_after: int = 0
+    side_effects: list[str] = field(default_factory=list)
+    rank: tuple = field(default=(), repr=False, compare=False)
