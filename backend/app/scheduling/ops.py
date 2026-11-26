@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session
 from .. import models as m
 from ..db import get_db
 from ..schemas import EntryUpsert
+from .calendar import OPEN
 from .changes import diff_issues, impact_of_leave
 from .domain import Issue, Suggestion
+from .index import Index
 from .loader import load_roster_context, sync_conflicts, upsert_cells
 from .suggest import suggest_for_gap
 from .validator import summarize, validate
@@ -229,3 +231,42 @@ def leave_change(roster_id: UUID, body: LeaveChange, db: Session = Depends(get_d
                   for g in r["new_gaps"]],
         other_errors=[issue_out(i) for i in r["new_other_errors"]],
         summary=Summary(**summarize(r["issues_after"])))
+
+
+# ---------------------------------------------------------------- coverage matrix
+class CoverageCell(BaseModel):
+    on_date: date
+    state: Literal["open", "closed_holiday", "closed_regular"]
+    required: int
+    covered: int
+
+
+class CoverageRow(BaseModel):
+    brand_process_id: str
+    brand: str
+    process: str
+    label: str
+    employee_ids: list[str]
+    cells: list[CoverageCell]
+
+
+@router.get("/{roster_id}/coverage", response_model=list[CoverageRow])
+def coverage_matrix(roster_id: UUID, db: Session = Depends(get_db)):
+    """Per brand-process, per day: is it open, how many are needed, how many are rostered.
+    Uses the same calendar/coverage logic as the validator, so the dashboard never re-implements rules."""
+    roster = get_roster(db, roster_id)
+    problem, entries = load_roster_context(db, roster)
+    idx = Index(problem)
+    rows = []
+    for bp in sorted(problem.brand_processes, key=lambda b: b.label):
+        brand, _, process = bp.label.partition(" · ")
+        cells = []
+        for d in idx.days:
+            state = idx.state(bp.id, d)
+            required = idx.required(bp.id, d) if state == OPEN else 0
+            covered = sum(1 for mem in idx.members(bp.id, d) if entries.get((mem, d)) == "working")
+            cells.append(CoverageCell(on_date=d, state=state, required=required, covered=covered))
+        rows.append(CoverageRow(
+            brand_process_id=bp.id, brand=brand, process=process, label=bp.label,
+            employee_ids=sorted({a.employee_id for a in idx.asg_by_bp[bp.id]}), cells=cells))
+    return rows
