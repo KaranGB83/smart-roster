@@ -3,7 +3,7 @@
 Monthly roster planning for multi-brand, multi-process operations teams.
 FastAPI + PostgreSQL (Supabase) backend, React frontend. Design: [docs/DESIGN.md](docs/DESIGN.md).
 
-> Work in progress. Stages: 1 design/schema ✅ · 2 backend APIs ✅ · 3 roster solver ✅ · 4 validation/changes ✅ · 5 dashboard · 6 sample data (seed ✅, to refine) · 7 deploy.
+> Work in progress. Stages: 1 design/schema ✅ · 2 backend APIs ✅ · 3 roster solver ✅ · 4 validation/changes ✅ · 5 dashboard ✅ · 6 sample data (seed ✅, to refine) · 7 deploy.
 
 ## Run the backend
 1. Create a Supabase project and run `supabase/schema.sql` in the SQL editor.
@@ -27,7 +27,7 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/roster_test python -m py
 ## API overview
 CRUD (GET list with `?column=value` filters, POST, GET/PATCH/DELETE `/{id}`):
 `/pods` `/employees` `/brands` `/processes` `/brand-processes` `/coverage-rules` `/assignments`
-`/holidays` `/leaves` `/shifts`. Plus `/rosters` (+ `/rosters/{id}/entries`), `/conflicts`, `/assignment-details`, `/health`.
+`/holidays` `/leaves` `/shifts`. Plus `/rosters` (+ `/rosters/{id}/entries`, `/rosters/{id}/coverage`), `/conflicts`, `/assignment-details`, `/health`.
 
 ## Roster generation (Stage 3)
 `POST /rosters/generate` builds a draft roster with OR-Tools CP-SAT (`app/scheduling/solver.py`, pure
@@ -66,3 +66,27 @@ A client coverage requirement always outranks a preference, so preferences can o
 - `POST /rosters/{id}/edits` manual edit or "apply this suggestion". The response lists the problems the
   edit introduced and the ones it resolved.
 - `PATCH /rosters/{id}` with `{"status": "published"}` returns 409 listing every unresolved error.
+
+## Dashboard (Stage 5)
+React + TypeScript (Vite) in `frontend/`. It talks only to the API; every rule shown on screen
+(open/closed days, required staff, gaps, fixes) comes from the backend, so there is one source of truth.
+
+```bash
+cd frontend
+cp .env.example .env        # VITE_API_URL, default http://localhost:8000
+npm install
+npm run dev                 # http://localhost:5173  (backend CORS_ORIGINS must include it)
+npm test                    # unit tests for dates, grouping and view scoping
+npm run build               # type-checks, then builds to dist/
+```
+
+What you can do
+- **Generate** a roster for any month, pick between versions, and **publish** (blocked while errors remain).
+- **Five views** of the same data: Company, Pod, Brand, Process, Employee. Each shows a coverage matrix
+  (brand-process lines by day; a short day is a solid red `0/1` cell) above the people grid.
+  Large views list only lines that have a short day; "Show all lines" opens the rest.
+- **Change a day** by selecting a cell: set weekly off / working, or lock it so regeneration keeps it.
+  The result says which problems the edit introduced or resolved.
+- **Issues** panel: errors, warnings and notes. Select a gap (or a red cell) to see simulated fixes, then apply one.
+- **What if someone is out?** Pick a person and dates, see the impact on every brand they cover, then record the leave.
+- Keyboard: arrow keys move across the grid, Enter opens a day. Dark mode follows the system setting.
