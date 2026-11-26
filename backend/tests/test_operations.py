@@ -96,3 +96,23 @@ def test_archived_roster_cannot_be_edited_and_unknown_inputs_404(roster):
     assert client.post(f"/rosters/{nil}/validate").status_code == 404
     assert client.post(f"/rosters/{rid}/suggestions", json={"conflict_id": nil}).status_code == 404
     assert client.post(f"/rosters/{rid}/suggestions", json={}).status_code == 422
+
+
+def test_coverage_matrix_matches_validator(roster):
+    client, rid = roster
+    rows = client.get(f"/rosters/{rid}/coverage").json()
+    assert len(rows) == 44 and all(len(r["cells"]) == 31 for r in rows)
+    econest = next(r for r in rows if r["label"] == "EcoNest · CS")
+    assert (econest["brand"], econest["process"]) == ("EcoNest", "CS") and len(econest["employee_ids"]) == 1
+    sunday = next(c for c in econest["cells"] if c["on_date"] == "2026-12-06")
+    assert sunday["state"] == "closed_regular" and sunday["required"] == 0
+    wed = next(c for c in econest["cells"] if c["on_date"] == "2026-12-02")
+    assert wed["state"] == "open" and wed["required"] == 1 and wed["covered"] == 1
+    # no cell is short on a clean roster; after approved leave exactly the validator's gap shows up
+    assert not [c for r in rows for c in r["cells"] if c["covered"] < c["required"]]
+    kabir = next(e for e in client.get("/employees").json() if e["code"] == "EMP-005")
+    client.post(f"/rosters/{rid}/leave-change", json={
+        "employee_id": kabir["id"], "start_date": "2026-12-09", "end_date": "2026-12-09", "dry_run": False})
+    short = [(r["label"], c["on_date"]) for r in client.get(f"/rosters/{rid}/coverage").json()
+             for c in r["cells"] if c["covered"] < c["required"]]
+    assert short == [("EcoNest · CS", "2026-12-09")]
