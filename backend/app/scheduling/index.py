@@ -2,7 +2,7 @@
 from collections import defaultdict
 from datetime import date
 
-from .calendar import CLOSED_HOLIDAY, OPEN, assignment_active, month_days, open_state, required_staff
+from .calendar import CLOSED_HOLIDAY, CLOSED_REGULAR, OPEN, assignment_active, month_days, open_state, required_staff
 from .domain import AssignmentIn, Problem
 
 
@@ -48,6 +48,8 @@ class Index:
             if self.has_any[eid]:
                 states = [self.state(a.bp_id, d) for a in self.asg_by_emp[eid] if assignment_active(a, d)]
                 if OPEN not in states:
-                    val = "holiday_off" if CLOSED_HOLIDAY in states else "weekly_off"
+                    # a holiday on a day the person is off anyway (e.g. a Sunday for a line that
+                    # is closed Sundays) is their weekly off, not an extra day off
+                    val = "holiday_off" if CLOSED_HOLIDAY in states and CLOSED_REGULAR not in states else "weekly_off"
             self._forced[k] = val
         return self._forced[k]
