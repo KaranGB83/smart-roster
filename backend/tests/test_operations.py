@@ -23,7 +23,7 @@ def test_validate_clean_roster_reports_info_and_is_publishable(roster):
     client, rid = roster
     v = client.post(f"/rosters/{rid}/validate").json()
     assert v["summary"]["errors"] == 0 and v["summary"]["publishable"]
-    assert v["summary"]["info"] >= 20                        # 20 single-resource brands flagged as SPOF
+    assert v["summary"]["info"] >= 24                        # 24 single-resource brands flagged as SPOF
     assert {i["code"] for i in v["issues"] if i["severity"] == "info"} == {"SINGLE_POINT_OF_FAILURE"}
 
 
@@ -60,7 +60,7 @@ def test_publish_blocked_until_gap_is_fixed_then_allowed(roster):
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["errors"][0]["code"] == "NO_COVERAGE"
 
-    # manager fixes it: a floating backup (EMP-034..036) is borrowed for that one day
+    # manager fixes it: a colleague is borrowed for that one day
     conflict = next(c for c in client.get("/conflicts", params={"roster_id": rid}).json()
                     if c["severity"] == "error")
     sugs = client.post(f"/rosters/{rid}/suggestions", json={"conflict_id": conflict["id"]}).json()
@@ -101,7 +101,7 @@ def test_archived_roster_cannot_be_edited_and_unknown_inputs_404(roster):
 def test_coverage_matrix_matches_validator(roster):
     client, rid = roster
     rows = client.get(f"/rosters/{rid}/coverage").json()
-    assert len(rows) == 44 and all(len(r["cells"]) == 31 for r in rows)
+    assert len(rows) == 56 and all(len(r["cells"]) == 31 for r in rows)
     econest = next(r for r in rows if r["label"] == "EcoNest · CS")
     assert (econest["brand"], econest["process"]) == ("EcoNest", "CS") and len(econest["employee_ids"]) == 1
     sunday = next(c for c in econest["cells"] if c["on_date"] == "2026-12-06")

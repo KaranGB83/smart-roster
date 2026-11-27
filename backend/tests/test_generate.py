@@ -13,7 +13,7 @@ from app.seed import seed
 def seeded(client):
     with Session(get_engine()) as db:
         info = seed(db)
-    assert info == {"employees": 36, "pods": 6, "brands": 25, "brand_processes": 44}
+    assert info == {"employees": 36, "pods": 6, "brands": 30, "brand_processes": 56}
     return client
 
 
@@ -29,8 +29,8 @@ def test_seed_shape_matches_brief(seeded):
     for r in rows:
         primary_by_brand[r["brand"]].add(r["employee_id"])
     assert len(seeded.get("/employees").json()) == 36
-    # 20 of 25 brands (80%) have exactly one resource
-    assert sum(1 for s in primary_by_brand.values() if len(s) == 1) == 20
+    # 24 of 30 brands (80%) have exactly one resource
+    assert sum(1 for s in primary_by_brand.values() if len(s) == 1) == 24
 
 
 def test_december_baseline_is_clean_and_valid(seeded):
@@ -56,9 +56,9 @@ def test_december_baseline_is_clean_and_valid(seeded):
             statuses = [cal[d] for d in wd]
             if len(wd) == 7 and not {"leave", "comp_off"} & set(statuses):
                 assert statuses.count("weekly_off") >= emps[eid]["weekly_offs_per_week"]
-    # approved leave of employee 22 (Dec 14-15) is respected
-    e22 = next(e for e in emps.values() if e["code"] == "EMP-022")["id"]
-    assert by_emp[e22][date(2026, 12, 14)] == "leave" and by_emp[e22][date(2026, 12, 15)] == "leave"
+    # approved leave of employee 26 (Dec 14-15) is respected
+    e26 = next(e for e in emps.values() if e["code"] == "EMP-026")["id"]
+    assert by_emp[e26][date(2026, 12, 14)] == "leave" and by_emp[e26][date(2026, 12, 15)] == "leave"
 
 
 def test_pending_leave_is_ignored_until_approved_then_gap_is_flagged(seeded):
@@ -80,7 +80,7 @@ def test_pending_leave_is_ignored_until_approved_then_gap_is_flagged(seeded):
 def test_regeneration_keeps_locked_cells(seeded):
     first = generate(seeded)
     rid = first["roster"]["id"]
-    emp = next(e for e in seeded.get("/employees").json() if e["code"] == "EMP-021")
+    emp = next(e for e in seeded.get("/employees").json() if e["code"] == "EMP-025")
     seeded.put(f"/rosters/{rid}/entries", json=[
         {"employee_id": emp["id"], "on_date": "2026-12-10", "status": "weekly_off", "is_locked": True}])
     second = generate(seeded, name="Regenerated", base_roster_id=rid)
