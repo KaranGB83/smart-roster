@@ -3,7 +3,7 @@
 Monthly roster planning for multi-brand, multi-process operations teams.
 FastAPI + PostgreSQL (Supabase) backend, React frontend. Design: [docs/DESIGN.md](docs/DESIGN.md).
 
-> Work in progress. Stages: 1 design/schema ✅ · 2 backend APIs ✅ · 3 roster solver ✅ · 4 validation/changes ✅ · 5 dashboard ✅ · 6 sample data (seed ✅, to refine) · 7 deploy.
+> Work in progress. Stages: 1 design/schema ✅ · 2 backend APIs ✅ · 3 roster solver ✅ · 4 validation/changes ✅ · 5 dashboard ✅ · 6 sample data ✅ · 7 deploy.
 
 ## Run the backend
 1. Create a Supabase project and run `supabase/schema.sql` in the SQL editor.
@@ -14,7 +14,7 @@ FastAPI + PostgreSQL (Supabase) backend, React frontend. Design: [docs/DESIGN.md
    pip install -r requirements.txt
    uvicorn app.main:app --reload
    ```
-4. Load the sample data (36 employees, 6 pods, 25 brands; **wipes all tables**): `python -m app.seed --reset`
+4. Load the sample data (36 employees, 6 pods, 30 brands; **wipes all tables**): `python -m app.seed --reset`
 5. Open http://localhost:8000/docs for the interactive API, then try
    `POST /rosters/generate {"month_start": "2026-12-01"}`.
 
@@ -28,6 +28,20 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/roster_test python -m py
 CRUD (GET list with `?column=value` filters, POST, GET/PATCH/DELETE `/{id}`):
 `/pods` `/employees` `/brands` `/processes` `/brand-processes` `/coverage-rules` `/assignments`
 `/holidays` `/leaves` `/shifts`. Plus `/rosters` (+ `/rosters/{id}/entries`, `/rosters/{id}/coverage`), `/conflicts`, `/assignment-details`, `/health`.
+
+## Sample data (Stage 6)
+`python -m app.seed --reset` loads a fictional but realistic company (all names invented):
+- **36 employees in 6 pods** (Beauty, Home, Fashion, Food, Pets & Kids, Gadgets), each with a pod lead.
+- **30 brands, 56 brand-process lines** across Customer Support, Abandoned Cart, Retention and Non-Delivery Report.
+- **24 brands (80%) have one dedicated employee** who handles every process of that brand (EMP-001..024).
+- **6 brands have 2-3 people** with different processes, some overlapping (a process with two or three people),
+  and 28, 30, 33, 34 cover several brands. Each person's allocation sums to 100%.
+- **All four calendars:** 365-day, daily except holidays, Sunday + holidays off, and custom weekdays
+  (Mon-Fri / Mon-Sat). Coverage rules raise the minimum on a weekday (Urban Nest Saturdays) or a date (sale days).
+- **Maharashtra public holidays** Nov 2026 - Jan 2027 (Diwali, Guru Nanak Jayanti, Christmas, Republic Day).
+- **Leave:** approved planned/sick/comp-off, one rejected (ignored), and one pending leave for EMP-005
+  Kabir Singh, sole owner of EcoNest. Approve it to see the "single resource unavailable" flow (Stage 4).
+- December 2026 and January 2027 generate with no coverage gaps.
 
 ## Roster generation (Stage 3)
 `POST /rosters/generate` builds a draft roster with OR-Tools CP-SAT (`app/scheduling/solver.py`, pure
