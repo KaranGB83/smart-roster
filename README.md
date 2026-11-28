@@ -3,7 +3,7 @@
 Monthly roster planning for multi-brand, multi-process operations teams.
 FastAPI + PostgreSQL (Supabase) backend, React frontend. Design: [docs/DESIGN.md](docs/DESIGN.md).
 
-> Work in progress. Stages: 1 design/schema ✅ · 2 backend APIs ✅ · 3 roster solver ✅ · 4 validation/changes ✅ · 5 dashboard ✅ · 6 sample data ✅ · 7 deploy.
+> Work in progress. Stages: 1 design/schema - DONE · 2 backend APIs - DONE · 3 roster solver - DONE · 4 validation/changes - DONE · 5 dashboard ✅ · 6 sample data ✅ · 7 deploy.
 
 ## Run the backend
 1. Create a Supabase project and run `supabase/schema.sql` in the SQL editor.
